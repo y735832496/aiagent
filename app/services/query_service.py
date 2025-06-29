@@ -1,0 +1,300 @@
+import time
+from typing import List, Dict, Any
+from app.models.document import QueryRequest, QueryResponse, DocumentChunk
+from app.utils.embedding_service import EmbeddingService
+from app.utils.llm_service import LLMService
+from app.services.storage_factory import StorageFactory
+from app.services.langchain_service import LangChainRAGService
+from app.config import settings
+
+class QueryService:
+    """查询服务 - 集成LangChain RAG"""
+    
+    def __init__(self):
+        # 保留原有服务作为备用
+        self.storage = StorageFactory.create_storage()
+        self.embedding_service = EmbeddingService()
+        self.llm_service = LLMService()
+        
+        # 新增LangChain RAG服务
+        self.langchain_service = LangChainRAGService()
+    
+    async def query(self, request: QueryRequest) -> QueryResponse:
+        """处理查询请求 - 使用LangChain RAG"""
+        start_time = time.time()
+        
+        try:
+            print(f"🔍 开始处理查询: '{request.query}'")
+            
+            # 使用配置默认值
+            top_k = request.top_k if request.top_k is not None else settings.top_k
+            threshold = request.threshold if request.threshold is not None else settings.similarity_threshold
+            
+            print(f"📊 参数: top_k={top_k}, threshold={threshold}")
+            
+            # 使用LangChain RAG服务
+            print("🤖 使用LangChain RAG服务...")
+            result = await self.langchain_service.query(
+                query=request.query,
+                top_k=top_k,
+                threshold=threshold
+            )
+            print(f"result is :{result}")
+            # 处理结果
+            answer = result.get("answer", "")
+            print(f"answer is :{answer}")
+            sources = result.get("sources", [])
+            print(f"sources is :{sources}")
+            confidence = result.get("confidence", 0.0)
+            print(f"confidence is :{confidence}")
+            # 转换来源格式以保持API兼容性
+            formatted_sources = []
+            for source in sources:
+                formatted_source = {
+                    "content_preview": source.get("content_preview", ""),
+                    "similarity": 0.8,  # LangChain不直接提供相似度，使用默认值
+                    "metadata": source.get("metadata", {})
+                }
+                formatted_sources.append(formatted_source)
+            
+            processing_time = time.time() - start_time
+            print(f"✅ LangChain RAG处理完成，耗时: {processing_time:.4f}秒")
+            
+            return QueryResponse(
+                query=request.query,
+                answer=answer,
+                sources=formatted_sources if request.include_metadata else [],
+                confidence=confidence,
+                processing_time=processing_time,
+                total_chunks_retrieved=len(sources)
+            )
+            
+        except Exception as e:
+            print(f"❌ LangChain RAG查询失败，回退到原有服务: {e}")
+            return await self._fallback_query(request, start_time)
+    
+    async def _fallback_query(self, request: QueryRequest, start_time: float) -> QueryResponse:
+        """回退到原有的查询服务"""
+        try:
+            print("🔄 使用原有查询服务...")
+            
+            # 使用配置默认值
+            top_k = request.top_k if request.top_k is not None else settings.top_k
+            threshold = request.threshold if request.threshold is not None else settings.similarity_threshold
+            
+            # 1. 将查询转换为向量
+            print("🔄 正在将查询转换为向量...")
+            query_vector = self.embedding_service.encode_single_text(request.query)
+            print(f"✅ 查询向量生成完成，维度: {len(query_vector)}")
+            
+            # 2. 向量检索相似文档块
+            print("🔍 正在检索相似文档块...")
+            similar_chunks = await self.storage.search_similar_chunks(
+                query_vector=query_vector,
+                top_k=top_k,
+                threshold=threshold
+            )
+            print(f"📄 检索到 {len(similar_chunks)} 个相似文档块")
+            
+            # 打印每个块的详细信息
+            for i, chunk in enumerate(similar_chunks):
+                similarity = chunk.metadata.get('similarity', 0.0)
+                print(f"  块 {i+1}: 相似度={similarity:.4f}, 内容预览='{chunk.content[:50]}...'")
+            
+            # 3. 构建上下文
+            context_texts = []
+            sources = []
+            
+            for chunk in similar_chunks:
+                context_texts.append(chunk.content)
+                
+                # 构建来源信息
+                source_info = {
+                    'chunk_id': chunk.id,
+                    'content_preview': chunk.content[:100] + '...' if len(chunk.content) > 100 else chunk.content,
+                    'similarity': chunk.metadata.get('similarity', 0.0)
+                }
+                
+                # 添加文档信息
+                if 'document_id' in chunk.metadata:
+                    source_info['document_id'] = chunk.metadata['document_id']
+                if 'document_title' in chunk.metadata:
+                    source_info['document_title'] = chunk.metadata['document_title']
+                
+                sources.append(source_info)
+            
+            # 4. 生成答案
+            if context_texts:
+                print("🤖 正在生成答案...")
+                answer = await self.llm_service.generate_answer(
+                    query=request.query,
+                    context=context_texts
+                )
+                print(f"✅ 答案生成完成: '{answer[:100]}...'")
+            else:
+                answer = "抱歉，没有找到相关的文档内容来回答您的问题。请尝试使用不同的关键词或降低相似度阈值。"
+                print("❌ 没有找到相关文档内容")
+            
+            # 5. 计算置信度（基于相似度）
+            confidence = 0.0
+            if sources:
+                avg_similarity = sum(s['similarity'] for s in sources) / len(sources)
+                confidence = min(avg_similarity, 1.0)
+                print(f"📈 平均相似度: {avg_similarity:.4f}, 置信度: {confidence:.4f}")
+            
+            processing_time = time.time() - start_time
+            print(f"⏱️ 处理完成，耗时: {processing_time:.4f}秒")
+            
+            return QueryResponse(
+                query=request.query,
+                answer=answer,
+                sources=sources if request.include_metadata else [],
+                confidence=confidence,
+                processing_time=processing_time,
+                total_chunks_retrieved=len(similar_chunks)
+            )
+            
+        except Exception as e:
+            processing_time = time.time() - start_time
+            print(f"❌ 回退查询处理失败: {e}")
+            return QueryResponse(
+                query=request.query,
+                answer=f"查询处理失败: {str(e)}",
+                sources=[],
+                confidence=0.0,
+                processing_time=processing_time,
+                total_chunks_retrieved=0
+            )
+    
+    async def search_documents(self, query: str, top_k: int = 10, threshold: float = 0.5) -> List[Dict[str, Any]]:
+        """搜索文档（返回文档级别的结果）"""
+        try:
+            print(f"🔍 搜索文档: '{query}', top_k={top_k}, threshold={threshold}")
+            
+            # 优先使用LangChain存储系统
+            try:
+                print("🤖 使用LangChain存储系统搜索...")
+                results = await self.langchain_service.search_documents(
+                    query=query,
+                    top_k=top_k,
+                    threshold=threshold
+                )
+                print(f"✅ LangChain搜索完成，找到 {len(results)} 个结果")
+                return results
+                
+            except Exception as e:
+                print(f"❌ LangChain搜索失败，回退到原有存储系统: {e}")
+                
+                # 回退到原有存储系统
+                print("🔄 使用原有存储系统搜索...")
+                
+                # 将查询转换为向量
+                query_vector = self.embedding_service.encode_single_text(query)
+                
+                # 检索相似文档块
+                similar_chunks = await self.storage.search_similar_chunks(
+                    query_vector=query_vector,
+                    top_k=top_k * 2,  # 获取更多块以便去重
+                    threshold=threshold
+                )
+                
+                # 按文档分组并计算文档级别的相似度
+                document_scores = {}
+                
+                for chunk in similar_chunks:
+                    doc_id = chunk.metadata.get('document_id')
+                    if doc_id:
+                        if doc_id not in document_scores:
+                            document_scores[doc_id] = {
+                                'document_id': doc_id,
+                                'document_title': chunk.metadata.get('document_title', 'Unknown'),
+                                'chunks': [],
+                                'max_similarity': 0.0,
+                                'avg_similarity': 0.0
+                            }
+                        
+                        similarity = chunk.metadata.get('similarity', 0.0)
+                        document_scores[doc_id]['chunks'].append({
+                            'chunk_id': chunk.id,
+                            'content_preview': chunk.content[:150] + '...' if len(chunk.content) > 150 else chunk.content,
+                            'similarity': similarity
+                        })
+                        
+                        # 更新文档级别的相似度
+                        doc_scores = document_scores[doc_id]
+                        doc_scores['max_similarity'] = max(doc_scores['max_similarity'], similarity)
+                
+                # 计算平均相似度
+                for doc_id, doc_info in document_scores.items():
+                    similarities = [chunk['similarity'] for chunk in doc_info['chunks']]
+                    doc_info['avg_similarity'] = sum(similarities) / len(similarities)
+                    # 只保留前3个最相关的块
+                    doc_info['chunks'] = sorted(doc_info['chunks'], key=lambda x: x['similarity'], reverse=True)[:3]
+                
+                # 按最大相似度排序
+                results = list(document_scores.values())
+                results.sort(key=lambda x: x['max_similarity'], reverse=True)
+                
+                print(f"✅ 原有存储系统搜索完成，找到 {len(results)} 个结果")
+                return results[:top_k]
+            
+        except Exception as e:
+            print(f"❌ 搜索文档失败: {e}")
+            return []
+    
+    async def get_suggestions(self, query: str, max_suggestions: int = 5) -> List[str]:
+        """获取查询建议"""
+        try:
+            # 这里可以实现更复杂的建议逻辑
+            # 目前返回一些简单的建议
+            suggestions = []
+            
+            # 基于查询长度提供建议
+            if len(query) < 3:
+                suggestions.append("请提供更详细的查询")
+            elif len(query) > 100:
+                suggestions.append("请简化您的查询")
+            
+            # 添加一些通用建议
+            common_suggestions = [
+                "尝试使用关键词而不是完整句子",
+                "检查拼写是否正确",
+                "使用更具体的关键词"
+            ]
+            
+            suggestions.extend(common_suggestions[:max_suggestions - len(suggestions)])
+            
+            return suggestions
+            
+        except Exception as e:
+            print(f"获取查询建议失败: {e}")
+            return []
+    
+    async def health_check(self) -> dict:
+        """健康检查"""
+        try:
+            # 检查LangChain RAG服务
+            langchain_health = await self.langchain_service.health_check()
+            
+            # 检查原有服务
+            storage_health = await self.storage.health_check()
+            embedding_health = self.embedding_service.get_model_info()
+            llm_health = await self.llm_service.health_check()
+            
+            return {
+                'status': 'healthy' if langchain_health.get('status') == 'healthy' else 'unhealthy',
+                'langchain_rag': langchain_health,
+                'legacy_services': {
+                    'storage': {
+                        'backend': type(self.storage).__name__,
+                        'healthy': storage_health
+                    },
+                    'embedding': embedding_health,
+                    'llm': llm_health
+                }
+            }
+        except Exception as e:
+            return {
+                'status': 'error',
+                'error': str(e)
+            } 
