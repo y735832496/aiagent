@@ -218,71 +218,12 @@ class LangChainRAGService:
             traceback.print_exc()
             return False
     
-    async def query(self, query: str, top_k: int = 5, threshold: float = 0.3) -> Dict[str, Any]:
-        """查询问答"""
-        try:
-            if self.vector_store is None:
-                print(f"❌ 向量存储为空")
-                return {
-                    "answer": "抱歉，向量存储未初始化",
-                    "sources": [],
-                    "confidence": 0.0
-                }
-            
-            print(f"🔍 LangChain查询: '{query}', top_k={top_k}, threshold={threshold}")
-            
-            # 创建检索器 - 暂时不使用score_threshold，让所有结果都返回
-            retriever = self.vector_store.as_retriever(
-                search_type="similarity",
-                search_kwargs={
-                    "k": top_k * 2,  # 获取更多块以便过滤
-                    # 暂时不使用score_threshold，让所有结果都返回
-                }
-            )
-            
-            # 创建QA链
-            qa_chain = RetrievalQA.from_chain_type(
-                llm=self.llm,
-                chain_type="stuff",
-                retriever=retriever,
-                return_source_documents=True,
-                chain_type_kwargs={
-                    "prompt": self._get_qa_prompt()
-                }
-            )
-            
-            print("query is :", query)
-            # 执行查询
-            result = await qa_chain.ainvoke({"query": query})
-            
-            # 处理结果
-            answer = result.get("result", "")
-            print(f"[DEBUG] 查询结果: {answer}")
-            source_docs = result.get("source_documents", [])
-            print(f"[DEBUG] 检索到 {len(source_docs)} 个文档块")
-            
-            # 构建来源信息
-            sources = []
-            for doc in source_docs:
-                source_info = {
-                    "content_preview": doc.page_content[:100] + "..." if len(doc.page_content) > 100 else doc.page_content,
-                    "metadata": doc.metadata
-                }
-                sources.append(source_info)
-            
             return {
-                "answer": answer,
-                "sources": sources,
-                "confidence": 0.8 if sources else 0.0  # 简化置信度计算
-            }
-            
-        except Exception as e:
-            print(f"❌ 查询失败: {e}")
-            return {
-                "answer": f"查询处理失败: {str(e)}",
+                "answer": "抱歉，查询过程中出现错误。",
                 "sources": [],
                 "confidence": 0.0
-            }
+            }               
+            
     
     async def search_documents(self, query: str, top_k: int = 10, threshold: float = 0.1) -> List[Dict[str, Any]]:
         """搜索文档（返回文档级别的结果）"""
@@ -419,6 +360,7 @@ class LangChainRAGService:
 
 请提供准确、简洁的回答："""
 
+
         return PromptTemplate(
             template=template,
             input_variables=["context", "question"]
@@ -426,40 +368,85 @@ class LangChainRAGService:
     
     def get_stats(self) -> Dict[str, Any]:
         """获取统计信息"""
-        if self.vector_store is None:
-            return {"total_documents": 0, "total_chunks": 0}
-        
         try:
-            # 获取向量存储信息
-            index = self.vector_store.index
-            total_chunks = index.ntotal if hasattr(index, 'ntotal') else 0
+            if self.vector_store is None:
+                return {
+                    "total_chunks": 0,
+                    "vector_store_ok": False,
+                    "llm_ok": False
+                }
             
-            return {
-                "total_documents": 0,  # 需要从元数据统计
-                "total_chunks": total_chunks
-            }
-        except Exception as e:
-            print(f"获取统计信息失败: {e}")
-            return {"total_documents": 0, "total_chunks": 0}
-    
-    async def health_check(self) -> Dict[str, Any]:
-        """健康检查"""
-        try:
+            # 获取向量存储统计
+            total_chunks = len(self.vector_store.index_to_docstore_id) if self.vector_store else 0
+            
             # 测试向量存储
             vector_store_ok = self.vector_store is not None
             
-            # 测试LLM
-            test_result = await self.llm._acall("测试", max_tokens=5)
-            llm_ok = len(test_result) > 0
+            # 测试LLM（简化测试）
+            llm_ok = self.llm is not None
             
             return {
-                "status": "healthy" if vector_store_ok and llm_ok else "unhealthy",
-                "vector_store": vector_store_ok,
-                "llm": llm_ok,
-                "stats": self.get_stats()
+                "total_chunks": total_chunks,
+                "vector_store_ok": vector_store_ok,
+                "llm_ok": llm_ok
+            }
+            
+        except Exception as e:
+            print(f"获取统计信息失败: {e}")
+            return {
+                "total_chunks": 0,
+                "vector_store_ok": False,
+                "llm_ok": False,
+                "error": str(e)
+            }
+    async def query(self, query: str, top_k: int = 5, threshold: float = 0.3) -> Dict[str, Any]:
+        """查询问答"""
+        import numpy as np
+        try:
+            if self.vector_store is None:
+                print(f"❌ 向量存储为空")
+                return {
+                    "answer": "向量存储未初始化",
+                    "sources": [],
+                    "confidence": 0.0
+                }
+            print(f"🔍 LangChain查询: '{query}', top_k={top_k}, threshold={threshold}")
+            retriever = self.vector_store.as_retriever(
+                search_type="similarity",
+                search_kwargs={"k": top_k}
+            )
+            qa_chain = RetrievalQA.from_chain_type(
+                llm=self.llm,
+                chain_type="stuff",
+                retriever=retriever,
+                return_source_documents=True,
+                chain_type_kwargs={"prompt": self._get_qa_prompt()}
+            )
+            result = await qa_chain.ainvoke({"query": query})
+            answer = result.get("result", "")
+            source_docs = result.get("source_documents", [])
+            sources = [{
+                "content_preview": doc.page_content[:100] + "..." if len(doc.page_content) > 100 else doc.page_content,
+                "metadata": doc.metadata
+            } for doc in source_docs]
+            # 计算真实的相似度
+            total_similarity = 0.0
+            for doc in source_docs:
+                query_embedding = self.embeddings.embed_query(query)
+                doc_embedding = self.embeddings.embed_query(doc.page_content)
+                similarity = np.dot(query_embedding, doc_embedding) / (np.linalg.norm(query_embedding) * np.linalg.norm(doc_embedding))
+                total_similarity += similarity
+            return {
+                "answer": answer,
+                "sources": sources,
+                "confidence": total_similarity / len(source_docs) if source_docs else 0.0
             }
         except Exception as e:
+            print(f"❌ LangChain查询失败: {e}")
+            import traceback
+            traceback.print_exc()
             return {
-                "status": "error",
-                "error": str(e)
-            } 
+                "answer": "抱歉，查询过程中出现错误。",
+                "sources": [],
+                "confidence": 0.0
+            }

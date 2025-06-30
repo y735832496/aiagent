@@ -80,40 +80,79 @@ class DocumentService:
         except Exception as e:
             print(f"获取文档失败: {e}")
             return None
-    
     async def list_documents(self, page: int = 1, page_size: int = 10) -> DocumentListResponse:
-        """获取文档列表"""
+        """从LangChain存储获取文档列表"""
         try:
-            documents = await self.storage.list_documents(page, page_size)
+            print(f"📚 从LangChain存储获取文档列表: page={page}, page_size={page_size}")
             
-            # 将Document对象转换为字典
-            doc_dicts = []
-            for doc in documents:
-                doc_dict = {
-                    "id": doc.id,
-                    "title": doc.title,
-                    "content": doc.content[:200] + "..." if len(doc.content) > 200 else doc.content,  # 截断长内容
-                    "file_type": doc.file_type,
-                    "file_size": doc.file_size,
-                    "created_at": doc.created_at.isoformat() if hasattr(doc.created_at, 'isoformat') else str(doc.created_at),
-                    "updated_at": doc.updated_at.isoformat() if hasattr(doc.updated_at, 'isoformat') else str(doc.updated_at),
-                    "chunks_count": len(doc.chunks),
-                    "metadata": doc.metadata
-                }
-                doc_dicts.append(doc_dict)
+            # 从LangChain存储获取文档信息
+            vector_store = self.langchain_service.vector_store
+            if not vector_store:
+                print("❌ LangChain向量存储为空")
+    
             
-            # 获取总数（这里简化处理，实际应该从存储获取）
-            total_count = len(doc_dicts) + (page - 1) * page_size  # 估算总数
+            print(f"📊 LangChain存储状态: {len(vector_store.index_to_docstore_id)} 个文档块")
+            
+            # 从向量存储中提取文档信息
+            documents = []
+            doc_ids = set()
+            
+            for idx, doc_id in vector_store.index_to_docstore_id.items():
+                doc = vector_store.docstore._dict.get(doc_id)
+                if doc:
+                    document_id = doc.metadata.get("document_id")
+                    if document_id and document_id not in doc_ids:
+                        doc_ids.add(document_id)
+                        
+                        # 计算该文档的块数
+                        chunk_count = sum(1 for i, stored_doc_id in vector_store.index_to_docstore_id.items()
+                                        if vector_store.docstore._dict.get(stored_doc_id, {}).metadata.get("document_id") == document_id)
+                        
+                        documents.append({
+                            "id": document_id,
+                            "title": doc.metadata.get("title", "Unknown"),
+                            "content": doc.page_content[:200] + "..." if len(doc.page_content) > 200 else doc.page_content,
+                            "file_type": doc.metadata.get("file_type", "text"),
+                            "file_size": len(doc.page_content.encode("utf-8")),
+                            "created_at": str(doc.metadata.get("created_at", "")),
+                            "updated_at": str(doc.metadata.get("created_at", "")),  # 使用创建时间作为更新时间
+                            "chunks_count": chunk_count,
+                            "metadata": {
+                                "document_id": document_id,
+                                "title": doc.metadata.get("title", "Unknown"),
+                                "file_type": doc.metadata.get("file_type", "text"),
+                                "created_at": doc.metadata.get("created_at", "")
+                            }
+                        })
+            
+            print(f"📄 提取到 {len(documents)} 个唯一文档")
+            
+            # 按创建时间排序（如果有的话）
+            try:
+                documents.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+            except:
+                pass  # 如果排序失败，保持原有顺序
+            
+            # 分页处理
+            total_count = len(documents)
+            start_idx = (page - 1) * page_size
+            end_idx = start_idx + page_size
+            paginated_docs = documents[start_idx:end_idx]
+            
+            print(f"📊 分页结果: 总数={total_count}, 当前页={page}, 页大小={page_size}, 返回={len(paginated_docs)}个文档")
             
             return DocumentListResponse(
-                documents=doc_dicts,
+                documents=paginated_docs,
                 total_count=total_count,
                 page=page,
                 page_size=page_size
             )
         except Exception as e:
-            print(f"获取文档列表失败: {e}")
-            return DocumentListResponse(documents=[], total_count=0, page=page, page_size=page_size)
+            print(f"❌ 从LangChain存储获取文档列表失败: {e}")
+            import traceback
+            traceback.print_exc()
+
+
     
     async def delete_document(self, document_id: str) -> bool:
         """删除文档"""
