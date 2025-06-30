@@ -58,7 +58,7 @@ class Settings(BaseSettings):
     log_file: Optional[str] = None
     
     # DeepSeek API key
-    deepseek_api_key: Optional[str] = "set your deepseek token"
+    deepseek_api_key: Optional[str] = "sk-498e5c6d3af8478ca19cfa4f2a4047ed"
     
     # DeepSeek API URL
     deepseek_api_url: Optional[str] = "https://api.deepseek.com/v1/chat/completions"
