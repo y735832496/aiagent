@@ -56,9 +56,21 @@ class Settings(BaseSettings):
     # 日志配置
     log_level: str = "INFO"
     log_file: Optional[str] = None
+    # MySQL 记忆数据库配置
+    memory_mysql_host: str = "localhost"
+    memory_mysql_port: int = 3306
+    memory_mysql_database: str = "memory_langchain"
+    memory_mysql_username: str = "root"
+    memory_mysql_password: str = "Zpmc@3261"
+    memory_mysql_charset: str = "utf8mb4"
+    
+    # 记忆配置
+    memory_max_count: int = 50  # 每个会话最大记忆数量
+    memory_max_length: int = 1000  # 每条记忆最大长度
+    memory_similarity_threshold: float = 0.7  # 记忆相似度阈值
     
     # DeepSeek API key
-    deepseek_api_key: Optional[str] = "sk-498e5c6d3af8478ca19cfa4f2a4047ed"
+    deepseek_api_key: Optional[str] = "set your token here"
     
     # DeepSeek API URL
     deepseek_api_url: Optional[str] = "https://api.deepseek.com/v1/chat/completions"

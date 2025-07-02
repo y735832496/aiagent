@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from app.config import settings
-from app.api import documents_router, query_router, health_router
+from app.api import documents_router, query_router, health_router, memory_router
 
 # 创建FastAPI应用
 app = FastAPI(
@@ -26,6 +26,7 @@ app.add_middleware(
 app.include_router(documents_router)
 app.include_router(query_router)
 app.include_router(health_router)
+app.include_router(memory_router)
 
 @app.get("/", response_class=HTMLResponse)
 async def root():
@@ -54,12 +55,44 @@ async def root():
             </div>
             
             <div class="api-section">
-                <h2>📚 文档管理 API</h2>
+                <h2>🔍 查询问答 API</h2>
                 <div class="endpoint">
-                    <span class="method">POST</span> <span class="url">/api/documents/upload</span>
-                    <p>上传文档</p>
+                    <span class="method">POST</span> <span class="url">/api/query/ask</span>
+                    <p>问答接口（支持会话记忆）</p>
                 </div>
                 <div class="endpoint">
+                    <span class="method">GET</span> <span class="url">/api/query/search</span>
+                    <p>搜索文档</p>
+                </div>
+                <div class="endpoint">
+                    <span class="method">GET</span> <span class="url">/api/query/suggestions</span>
+                    <p>获取查询建议</p>
+                </div>
+            </div>
+            
+            <div class="api-section">
+                <h2>🧠 会话记忆 API</h2>
+                <div class="endpoint">
+                    <span class="method">POST</span> <span class="url">/api/memory/sessions</span>
+                    <p>创建新会话</p>
+                </div>
+                <div class="endpoint">
+                    <span class="method">GET</span> <span class="url">/api/memory/sessions</span>
+                    <p>获取会话列表</p>
+                </div>
+                <div class="endpoint">
+                    <span class="method">GET</span> <span class="url">/api/memory/sessions/{session_id}/history</span>
+                    <p>获取对话历史</p>
+                </div>
+                <div class="endpoint">
+                    <span class="method">DELETE</span> <span class="url">/api/memory/sessions/{session_id}</span>
+                    <p>删除会话</p>
+                </div>
+                <div class="endpoint">
+                    <span class="method">GET</span> <span class="url">/api/memory/stats</span>
+                    <p>获取记忆统计</p>
+                </div>
+            </div>                <div class="endpoint">
                     <span class="method">POST</span> <span class="url">/api/documents/upload-text</span>
                     <p>上传文本文档</p>
                 </div>
@@ -81,7 +114,7 @@ async def root():
                 <h2>🔍 查询问答 API</h2>
                 <div class="endpoint">
                     <span class="method">POST</span> <span class="url">/api/query/ask</span>
-                    <p>问答接口</p>
+                    <p>问答接口（支持会话记忆）</p>
                 </div>
                 <div class="endpoint">
                     <span class="method">GET</span> <span class="url">/api/query/search</span>
@@ -94,33 +127,159 @@ async def root():
             </div>
             
             <div class="api-section">
-                <h2>💚 健康检查 API</h2>
+                <h2>🧠 会话记忆 API</h2>
                 <div class="endpoint">
-                    <span class="method">GET</span> <span class="url">/api/health</span>
-                    <p>系统健康检查</p>
+                    <span class="method">POST</span> <span class="url">/api/memory/sessions</span>
+                    <p>创建新会话</p>
                 </div>
                 <div class="endpoint">
+                    <span class="method">GET</span> <span class="url">/api/memory/sessions</span>
+                    <p>获取会话列表</p>
+                </div>
+                <div class="endpoint">
+                    <span class="method">GET</span> <span class="url">/api/memory/sessions/{session_id}/history</span>
+                    <p>获取对话历史</p>
+                </div>
+                <div class="endpoint">
+                    <span class="method">DELETE</span> <span class="url">/api/memory/sessions/{session_id}</span>
+                    <p>删除会话</p>
+                </div>
+                <div class="endpoint">
+                    <span class="method">GET</span> <span class="url">/api/memory/stats</span>
+                    <p>获取记忆统计</p>
+                </div>
+            </div>                <div class="endpoint">
+                    <span class="method">GET</span> <span class="url">/api/query/search</span>
+                    <p>搜索文档</p>
+                </div>
+                <div class="endpoint">
+                    <span class="method">GET</span> <span class="url">/api/query/suggestions</span>
+                    <p>获取查询建议</p>
+                </div>
+            </div>
+            
+            <div class="api-section">
+                <h2>🔍 查询问答 API</h2>
+                <div class="endpoint">
+                    <span class="method">POST</span> <span class="url">/api/query/ask</span>
+                    <p>问答接口（支持会话记忆）</p>
+                </div>
+                <div class="endpoint">
+                    <span class="method">GET</span> <span class="url">/api/query/search</span>
+                    <p>搜索文档</p>
+                </div>
+                <div class="endpoint">
+                    <span class="method">GET</span> <span class="url">/api/query/suggestions</span>
+                    <p>获取查询建议</p>
+                </div>
+            </div>
+            
+            <div class="api-section">
+                <h2>🧠 会话记忆 API</h2>
+                <div class="endpoint">
+                    <span class="method">POST</span> <span class="url">/api/memory/sessions</span>
+                    <p>创建新会话</p>
+                </div>
+                <div class="endpoint">
+                    <span class="method">GET</span> <span class="url">/api/memory/sessions</span>
+                    <p>获取会话列表</p>
+                </div>
+                <div class="endpoint">
+                    <span class="method">GET</span> <span class="url">/api/memory/sessions/{session_id}/history</span>
+                    <p>获取对话历史</p>
+                </div>
+                <div class="endpoint">
+                    <span class="method">DELETE</span> <span class="url">/api/memory/sessions/{session_id}</span>
+                    <p>删除会话</p>
+                </div>
+                <div class="endpoint">
+                    <span class="method">GET</span> <span class="url">/api/memory/stats</span>
+                    <p>获取记忆统计</p>
+                </div>
+            </div>                <div class="endpoint">
                     <span class="method">GET</span> <span class="url">/api/health/storage</span>
                     <p>存储后端健康检查</p>
                 </div>
             </div>
             
             <div class="api-section">
-                <h2>📖 API 文档</h2>
-                <p>
-                    <a href="/docs" target="_blank">📋 Swagger UI 文档</a> | 
-                    <a href="/redoc" target="_blank">📖 ReDoc 文档</a>
-                </p>
+                <h2>🔍 查询问答 API</h2>
+                <div class="endpoint">
+                    <span class="method">POST</span> <span class="url">/api/query/ask</span>
+                    <p>问答接口（支持会话记忆）</p>
+                </div>
+                <div class="endpoint">
+                    <span class="method">GET</span> <span class="url">/api/query/search</span>
+                    <p>搜索文档</p>
+                </div>
+                <div class="endpoint">
+                    <span class="method">GET</span> <span class="url">/api/query/suggestions</span>
+                    <p>获取查询建议</p>
+                </div>
             </div>
             
             <div class="api-section">
-                <h2>⚙️ 配置信息</h2>
-                <p><strong>向量后端:</strong> {settings.vector_backend}</p>
-                <p><strong>文档后端:</strong> {settings.document_backend}</p>
-                <p><strong>向量化模型:</strong> {settings.embedding_model}</p>
-                <p><strong>版本:</strong> {settings.app_version}</p>
+                <h2>🧠 会话记忆 API</h2>
+                <div class="endpoint">
+                    <span class="method">POST</span> <span class="url">/api/memory/sessions</span>
+                    <p>创建新会话</p>
+                </div>
+                <div class="endpoint">
+                    <span class="method">GET</span> <span class="url">/api/memory/sessions</span>
+                    <p>获取会话列表</p>
+                </div>
+                <div class="endpoint">
+                    <span class="method">GET</span> <span class="url">/api/memory/sessions/{session_id}/history</span>
+                    <p>获取对话历史</p>
+                </div>
+                <div class="endpoint">
+                    <span class="method">DELETE</span> <span class="url">/api/memory/sessions/{session_id}</span>
+                    <p>删除会话</p>
+                </div>
+                <div class="endpoint">
+                    <span class="method">GET</span> <span class="url">/api/memory/stats</span>
+                    <p>获取记忆统计</p>
+                </div>
+            </div>            
+            <div class="api-section">
+                <h2>🔍 查询问答 API</h2>
+                <div class="endpoint">
+                    <span class="method">POST</span> <span class="url">/api/query/ask</span>
+                    <p>问答接口（支持会话记忆）</p>
+                </div>
+                <div class="endpoint">
+                    <span class="method">GET</span> <span class="url">/api/query/search</span>
+                    <p>搜索文档</p>
+                </div>
+                <div class="endpoint">
+                    <span class="method">GET</span> <span class="url">/api/query/suggestions</span>
+                    <p>获取查询建议</p>
+                </div>
             </div>
-        </div>
+            
+            <div class="api-section">
+                <h2>🧠 会话记忆 API</h2>
+                <div class="endpoint">
+                    <span class="method">POST</span> <span class="url">/api/memory/sessions</span>
+                    <p>创建新会话</p>
+                </div>
+                <div class="endpoint">
+                    <span class="method">GET</span> <span class="url">/api/memory/sessions</span>
+                    <p>获取会话列表</p>
+                </div>
+                <div class="endpoint">
+                    <span class="method">GET</span> <span class="url">/api/memory/sessions/{session_id}/history</span>
+                    <p>获取对话历史</p>
+                </div>
+                <div class="endpoint">
+                    <span class="method">DELETE</span> <span class="url">/api/memory/sessions/{session_id}</span>
+                    <p>删除会话</p>
+                </div>
+                <div class="endpoint">
+                    <span class="method">GET</span> <span class="url">/api/memory/stats</span>
+                    <p>获取记忆统计</p>
+                </div>
+            </div>        </div>
     </body>
     </html>
     """

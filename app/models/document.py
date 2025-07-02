@@ -44,6 +44,12 @@ class DocumentUploadRequest(BaseModel):
 class QueryRequest(BaseModel):
     """查询请求模型"""
     query: str
+    session_id: str = Field(default="default", description="会话ID，用于历史记忆")
+    top_k: int = Field(default=5, ge=1, le=20)
+    threshold: float = Field(default=0.7, ge=0.0, le=1.0)
+    include_metadata: bool = True
+    """查询请求模型"""
+    query: str
     top_k: int = Field(default=5, ge=1, le=20)
     threshold: float = Field(default=0.7, ge=0.0, le=1.0)
     include_metadata: bool = True

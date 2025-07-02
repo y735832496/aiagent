@@ -422,6 +422,7 @@ class LangChainRAGService:
                 return_source_documents=True,
                 chain_type_kwargs={"prompt": self._get_qa_prompt()}
             )
+            print("Push to llm.... Query is :", query)
             result = await qa_chain.ainvoke({"query": query})
             answer = result.get("result", "")
             source_docs = result.get("source_documents", [])
@@ -450,3 +451,9 @@ class LangChainRAGService:
                 "sources": [],
                 "confidence": 0.0
             }
+
+
+
+
+
+
